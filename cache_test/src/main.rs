@@ -3,7 +3,7 @@ pub use cache::Process;
 pub use cache::MyCache;
 pub use cache::read_process;
 
-fn main() {
+fn test_cache() {
     MyCache::refresh_cache();
 
     match read_process("process1") {
@@ -43,5 +43,9 @@ fn main() {
     }
 
     MyCache::write_cache();
+}
+
+fn main() {
+    test_cache();
 }
 
