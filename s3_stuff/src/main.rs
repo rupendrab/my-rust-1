@@ -1,10 +1,22 @@
-use rusoto_core::{Region, RusotoError};
+use aws_config::imds::client;
+use rusoto_core::{Region, RusotoError, ByteStream};
 use rusoto_s3::{HeadObjectRequest, GetObjectRequest, S3Client, S3};
+// use rusoto_s3::StreamingBody;
 use std::fs::File;
-use std::io::Write;
+// use tokio::fs::File as AsyncFile;
+use std::io::copy;
+// use std::io::Write;
 use std::error::Error;
 use tokio::runtime::Runtime;
-use tokio::io::AsyncReadExt;
+// use tokio_util::io::ReaderStream;
+// use tokio::io::{AsyncReadExt, BufReader};
+
+mod stream_util;
+use stream_util::file_to_bytestream;
+mod sdk_util;
+
+// use tokio::io::AsyncReadExt;
+// use tokio::io::AsyncWriteExt;
 
 async fn get_s3_object_etag(bucket: &str, key: &str) -> Result<String, RusotoError<rusoto_s3::HeadObjectError>> {
     let region = Region::default();
@@ -41,14 +53,11 @@ fn download_s3_file(bucket: &str, key: &str, output: &str) -> Result<String, Box
 
     let result = rt.block_on(client.get_object(get_req))?;
 
-    let stream = result.body.unwrap();
+    let mut stream = result.body.unwrap().into_blocking_read();
     let etag = result.e_tag.unwrap();
 
-    let mut body = Vec::new();
-    rt.block_on(stream.into_async_read().read_to_end(&mut body))?;
-
     let mut file = File::create(output)?;
-    file.write_all(&body)?;
+    copy(&mut stream, &mut file)?;
 
     Ok(etag)
 }
@@ -132,9 +141,116 @@ fn upload_local_file_to_s3(local_file: &str, s3_file_name: &str) -> Result<Strin
 
 }
 
+use futures::{Future, StreamExt};
+
+/*
+fn print_byte_stream(mut byte_stream: ByteStream) -> Result<(), Box<dyn Error>> {
+    // Create a new runtime
+    let rt = Runtime::new()?;
+
+    // Block on the async function
+    rt.block_on(async {
+        while let Some(item) = byte_stream.next().await {
+            match item {
+                Ok(bytes) => {
+                    println!("{:?}", bytes); // print the bytes
+                }
+                Err(e) => {
+                    eprintln!("Error: {:?}", e); // print the error
+                }
+            }
+        }
+    });
+
+    Ok(())
+}
+*/
+
+/// Says this functionality is not implemented
+fn upload_local_file_to_s3_lomem(bucket: &str, key: &str, file_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let region = Region::default();
+    let client = S3Client::new(region);
+    let rt = Runtime::new()?;
+
+    let stream = rt.block_on(file_to_bytestream(file_path));
+    // print_byte_stream(stream)?;
+
+    let req = rusoto_s3::PutObjectRequest {
+        bucket: bucket.to_string(),
+        key: key.to_string(),
+        body: Some(stream),
+        ..Default::default()
+    };
+
+    rt.block_on(client.put_object(req))?;
+
+    Ok(())
+}
+
+use aws_sdk_s3::Client;
+use sdk_util::{upload_object, get_client};
+use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
+use aws_config::meta::region::RegionProviderChain;
+use tokio::runtime::Handle;
+use std::sync::Arc;
+use once_cell::sync::OnceCell;
+
+static S3_CLIENT: OnceCell<Arc<Client>> = OnceCell::new();
+
+pub fn get_client_new() -> Arc<Client> {
+    S3_CLIENT.get().expect("S3_CLIENT not initialized").clone()
+}
+
+async fn upload_local_file_to_s3_sdk(local_file: &str, s3_file_name: &str) -> Result<String, Box<dyn std::error::Error>> {
+    // let client = get_client().await?;
+    let client = get_client_new();
+    match parse_s3_filename(&s3_file_name) {
+        Some((bucket, key, _)) => {
+            upload_object(&client, &bucket, &local_file, &key).await
+        },
+        None => Err("Invalid S3 filename".into())
+    }
+}
+
+async fn get_etag(s3_file_name: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let client = get_client_new();
+    match parse_s3_filename(&s3_file_name) {
+        Some((bucket, key, _)) => {
+            let head_object_output = client.head_object().bucket(&bucket).key(&key).send().await?;
+            match head_object_output.e_tag {
+                Some(etag) => Ok(etag),
+                None => Err("Failed to get ETag from HeadObjectOutput".into())
+            }
+        },
+        None => Err("Invalid S3 filename".into())
+    }
+}
+
+async fn dowload_file_from_s3_to_temp_dir_sdk(s3_file_name: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let client = get_client_new();
+    match parse_s3_filename(&s3_file_name) {
+        Some((bucket, key, file_name)) => {
+            let temp_dir = env::var("tmpdir").expect("tmpdir not set");
+            let mut load_path = PathBuf::from(temp_dir);
+            load_path.push(file_name);
+            let download_file_name = load_path.to_str().ok_or_else(|| "Invalid file path".to_string())?;
+            let get_object_output = client.get_object().bucket(&bucket).key(&key).send().await?;
+            let mut stream = get_object_output.body.into_async_read();
+            let mut file = tokio::fs::File::create(download_file_name).await?;
+            tokio::io::copy(&mut stream, &mut file).await?;
+            Ok(get_object_output.e_tag.unwrap())
+        },
+        None => Err("Invalid S3 filename".into())
+    }
+}
+
 use std::time::Instant;
 
 fn main() {
+    let client = sdk_util::init_s3_client();
+    S3_CLIENT.set(client).expect("Failed to set S3_CLIENT");
+    println!("Set up new S3 Client!");
     let s3_file_name = "s3://i360-dev-political-dmi/DMI_ABEV/DMI_ABEV_VA_20231113095455_split0000001.csv.gz";
     
     match download_s3_file_to_temp_dir(&s3_file_name) {
@@ -159,6 +275,42 @@ fn main() {
     let s3_file_json = "s3://i360-dev-political-dmi/API_CONTROL/processes.json";
     match upload_local_file_to_s3(&local_filename, &s3_file_json) {
         Ok(etag) => println!("Successfully uploaded file {} with etag: {}", &s3_file_json, etag),
+        Err(e) => eprintln!("Error: {}", e)
+    };
+
+    if 1 == 0 {
+        match upload_local_file_to_s3_lomem("i360-dev-political-dmi", "API_CONTROL/processes.json", &local_filename) {
+            Ok(_) => println!("Successfully uploaded file to S3 using the new process"),
+            Err(e) => eprintln!("Error: {}", e)
+        };
+    }
+
+    match rt.block_on(upload_local_file_to_s3_sdk(&local_filename, &s3_file_json)) {
+        Ok(etag) => println!("Successfully uploaded file {} with etag: {}", &s3_file_json, etag),
+        Err(e) => eprintln!("Error: {}", e)
+    };
+
+    // Get e-tags using the SDK
+    let start = Instant::now();
+
+    // let client = rt.block_on(get_client()).unwrap();
+    let counter = 20;
+    for _ in 0..counter {
+        match rt.block_on(get_etag(&s3_file_json)) {
+            Ok(etag) => println!("Successfully found etag: {}", etag),
+            Err(e) => eprintln!("Error: {}", e)
+        };
+    }
+    let duration = start.elapsed();
+    let avg_duration = (duration.as_millis() as f64 / counter as f64);
+    println!(
+        "Time elapsed in retrieving {} e-tags is: {:?} milliseconds , average = {} milliseconds", 
+        counter, duration.as_millis(), 
+        avg_duration);
+
+    // Download files using the SDK
+    match rt.block_on(dowload_file_from_s3_to_temp_dir_sdk(&s3_file_json)) {
+        Ok(etag) => println!("Successfully downloaded file with etag: {}", etag),
         Err(e) => eprintln!("Error: {}", e)
     };
 
