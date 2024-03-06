@@ -8,6 +8,74 @@ use serde::{Deserialize, Serialize};
 use serde_json::{from_reader};
 use anyhow::Result;
 
+use aws_sdk_s3::Client;
+use std::sync::Arc;
+use once_cell::sync::OnceCell;
+use std::env;
+use std::path::PathBuf;
+use tokio::runtime::Runtime;
+use tokio::task::spawn_blocking;
+use log::{debug, error, log_enabled, info, Level};
+
+pub static S3_CLIENT: OnceCell<Arc<Client>> = OnceCell::new();
+
+pub fn get_client_new() -> Arc<Client> {
+    S3_CLIENT.get().expect("S3_CLIENT not initialized").clone()
+}
+
+fn parse_s3_filename(filename: &str) -> Option<(String, String, String)> {
+    let s3_prefix = "s3://";
+    if !filename.starts_with(s3_prefix) {
+        return None;
+    }
+
+    let without_prefix = &filename[s3_prefix.len()..];
+    let parts: Vec<&str> = without_prefix.splitn(2, '/').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+
+    let bucket = parts[0].to_string();
+    let key = parts[1].to_string();
+
+    let key_parts: Vec<&str> = key.rsplitn(2, '/').collect();
+    let file_name = key_parts[0].to_string();
+
+    Some((bucket, key, file_name))
+}
+
+async fn get_etag(s3_file_name: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let client = get_client_new();
+    match parse_s3_filename(&s3_file_name) {
+        Some((bucket, key, _)) => {
+            let head_object_output = client.head_object().bucket(&bucket).key(&key).send().await?;
+            match head_object_output.e_tag {
+                Some(etag) => Ok(etag),
+                None => Err("Failed to get ETag from HeadObjectOutput".into())
+            }
+        },
+        None => Err("Invalid S3 filename".into())
+    }
+}
+
+async fn dowload_file_from_s3_to_temp_dir_sdk(s3_file_name: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let client = get_client_new();
+    match parse_s3_filename(&s3_file_name) {
+        Some((bucket, key, file_name)) => {
+            let temp_dir = env::var("tmpdir").expect("tmpdir not set");
+            let mut load_path = PathBuf::from(temp_dir);
+            load_path.push(file_name);
+            let download_file_name = load_path.to_str().ok_or_else(|| "Invalid file path".to_string())?;
+            let get_object_output = client.get_object().bucket(&bucket).key(&key).send().await?;
+            let mut stream = get_object_output.body.into_async_read();
+            let mut file = tokio::fs::File::create(download_file_name).await?;
+            tokio::io::copy(&mut stream, &mut file).await?;
+            Ok(get_object_output.e_tag.unwrap())
+        },
+        None => Err("Invalid S3 filename".into())
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Process {
   pub name: String,
@@ -18,15 +86,37 @@ pub struct Process {
 pub struct MyCache {
     pub all_processes: Vec<Process>,
     pub cache_time: u64,
+    pub etag: String,
 }
 
-fn read_data() -> Result<Vec<Process>> {
-    let file = File::open("processes.json")?;
-    let reader = BufReader::new(file);
-  
-    // Read the JSON data from the file
-    let data: Vec<Process> = from_reader(reader)?;
-    Ok(data)
+pub async fn read_data() -> Result<(Vec<Process>, String), Box<dyn std::error::Error>> {
+    let s3_file_name = env::var("s3_file").expect("s3_file not set");
+    let temp_dir = env::var("tmpdir").expect("tmpdir not set");
+    let mut load_path = PathBuf::from(temp_dir);
+    match parse_s3_filename(&s3_file_name) {
+        Some((_, _, file_name)) => {
+            load_path.push(file_name);
+            match dowload_file_from_s3_to_temp_dir_sdk(s3_file_name.as_str()).await {
+                Ok(etag) => {
+                    info!("Downloaded s3 file with ETag: {}", etag);
+                    let file = File::open(load_path)?;
+                    let reader = BufReader::new(file);
+                  
+                    // Read the JSON data from the file
+                    let data: Vec<Process> = from_reader(reader)?;
+                    Ok((data, etag))
+                },
+                Err(e) => {
+                    Err(format!("Error downloading file: {:?}", e).into())
+                }
+            }
+        },
+        None => Err("Invalid S3 filename".into())
+    }
+}
+
+pub fn get_current_time() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
 }
 
 fn update_data(data: Vec<Process>) -> Result<()> {
@@ -35,75 +125,91 @@ fn update_data(data: Vec<Process>) -> Result<()> {
     Ok(())
 }
 
+async fn init_cache() -> MyCache {
+    match read_data().await {
+        Ok((data, etag)) => MyCache {
+            all_processes: data,
+            cache_time: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            etag,
+        },
+        Err(e) => {
+            error!("Error reading cache: {:?}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+use tokio::task::block_in_place;
+
 impl MyCache {
-    pub fn get_instance() -> &'static Lazy<Mutex<MyCache>> {
+    pub async fn get_instance() -> &'static Lazy<Mutex<MyCache>> {
         static INSTANCE: Lazy<Mutex<MyCache>> = Lazy::new(|| {
-            let data = match read_data() {
-                Ok(v) => v,
-                Err(e) => {
-                    eprintln!("Error reading cache: {:?}", e);
-                    std::process::exit(1);
-                }
-            };
-            Mutex::new(MyCache {
-                all_processes: data,
-                cache_time: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
-            })
+            let cache = block_in_place(|| tokio::runtime::Runtime::new().unwrap().block_on(init_cache()));
+            Mutex::new(cache)
         });
         &INSTANCE
     }
 
-    pub fn write_cache() {
-        let cache = Self::get_instance().lock().expect("Failed to lock mutex");
-        match update_data(cache.all_processes.clone()) {
-            Ok(_) => println!("Cache written!"),
-            Err(e) => eprintln!("Error writing cache: {:?}", e)
+    pub async fn write_cache(&self) {
+        match update_data(self.all_processes.clone()) {
+            Ok(_) => info!("Cache written!"),
+            Err(e) => error!("Error writing cache: {:?}", e)
         }
     }
 
-    pub fn should_refresh_cache() -> bool {
-        let cache = Self::get_instance().lock().expect("Failed to lock mutex");
-        let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        return current_time - cache.cache_time > 60;
-    }
-
-    pub fn refresh_cache() {
-        let data = match read_data() {
-            Ok(v) => v,
+    pub async fn should_refresh_cache(&self) -> bool {
+        let time_to_check =  get_current_time()  - self.cache_time > 60;
+        if ! time_to_check {
+            return false;
+        }
+        let s3_file_name = env::var("s3_file").expect("s3_file not set");
+        match get_etag(&s3_file_name).await {
+            Ok(etag_new) => {
+                return etag_new != self.etag;
+            },
             Err(e) => {
-                eprintln!("Error reading cache: {:?}", e);
-                return; // Instead of exiting, we return to allow further handling.
+                error!("Error getting ETag: {:?}", e);
+                return true; // Decide to refresh cache if we can't get the ETag
             }
-        };
-
-        let mut cache = Self::get_instance().lock().expect("Failed to lock mutex");
-        cache.all_processes = data;
-        cache.cache_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        println!("Cache refreshed!");
+        }
     }
 
-    pub fn add_process(process: Process) {
-        let mut cache = Self::get_instance().lock().expect("Failed to lock mutex");
-        match cache.all_processes.iter().find(|p| p.name == process.name) {
+    pub async fn refresh_cache(&mut self) {
+        if self.should_refresh_cache().await {
+            let (processes, etag) = match read_data().await {
+                Ok((v, etag)) => (v, etag),
+                Err(e) => {
+                    error!("Error reading cache: {:?}", e);
+                    return; // Instead of exiting, we return to allow further handling.
+                }
+            };
+            self.all_processes = processes;
+            self.cache_time = get_current_time();
+            self.etag = etag;
+            info!("Cache refreshed!");
+        }
+    }
+
+    pub async fn add_process(&mut self, process: Process) {
+        match self.all_processes.iter().find(|p| p.name == process.name) {
             Some(_) => {
-                println!("Process already exists");
+                info!("Process already exists");
                 return;
             },
             None => {
-                cache.all_processes.push(process);
+                self.all_processes.push(process);
             }
         }
     }
 
-    pub fn modify_process(process: Process) {
-        let mut cache = Self::get_instance().lock().expect("Failed to lock mutex");
-        let index = cache.all_processes.iter().position(|p| p.name == process.name);
+    pub async fn modify_process(&mut self, process: Process) {
+        let index = self.all_processes.iter().position(|p| p.name == process.name);
         match index {
             Some(i) => {
-                cache.all_processes[i] = process;
+                self.all_processes[i] = process;
             },
             None => {
-                println!("Process not found");
+                info!("Process not found");
             }
         }
     }
@@ -116,8 +222,8 @@ impl MyCache {
     }
 }
 
-pub fn read_process(process_name: &str) -> Option<Process> {
-    let singleton = MyCache::get_instance().lock().unwrap();
+pub async fn read_process(process_name: &str) -> Option<Process> {
+    let singleton = MyCache::get_instance().await.lock().unwrap();
     match singleton.get_process(process_name) {
         Some(p) => Some(p),
         None => None
