@@ -30,9 +30,22 @@ struct ErrorResponse {
     run: bool,
 }
 
+#[derive(Serialize, Deserialize)]
+struct GenericErrorResponse {
+    code: u32,
+    message: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ProcessInput {
+    name: String,
+    run: bool,
+    tags: Option<Vec<String>>
+}
+
 async fn get_json_value(data: web::Data<Arc<Mutex<MyCache>>>, query: web::Query<QueryParams>) -> impl Responder {
     let mut data = data.lock().await;
-    data.refresh_cache().await;
+    data.refresh_cache(false).await;
     match data.get_process(&query.key) {
         Some(p) => HttpResponse::Ok().json(p),
         None => {
@@ -41,6 +54,24 @@ async fn get_json_value(data: web::Data<Arc<Mutex<MyCache>>>, query: web::Query<
                 run: true,
             };
             HttpResponse::NotFound().json(error_response)
+        }
+    }
+}
+
+async fn add_process_endpoint(data: web::Json<ProcessInput>, state: web::Data<Arc<Mutex<MyCache>>>) -> impl Responder {
+    let mut state = state.lock().await;
+    let process = data.into_inner();
+    let process_new = cache::create_process(&process.name, process.run, process.tags.clone());
+    match state.add_process(process_new.clone()).await {
+        Ok(_) => {
+            HttpResponse::Ok().json(process_new)
+        }
+        Err(e) => {
+            let error_response = GenericErrorResponse { 
+                code: 500, 
+                message: format!("Failed to add process: {}", e)
+            };
+            HttpResponse::InternalServerError().json(error_response)
         }
     }
 }
@@ -70,6 +101,7 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(web::Data::new(cached_data.clone()))
             .route("/", web::get().to(get_json_value))
+            .service(web::resource("/add_process").route(web::post().to(add_process_endpoint)))
     })
     .bind(&server_str)?
     .run()

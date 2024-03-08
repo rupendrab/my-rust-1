@@ -2,6 +2,7 @@
     {
         "name": "process1",
         "run": true,
+        "tags": ["dmi", "v4"],
         "effective": "2024-02-28 10:30:20"
     },
     {

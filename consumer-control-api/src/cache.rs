@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::hash::Hash;
+use aws_sdk_s3::operation::put_object;
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -16,6 +19,8 @@ use std::path::PathBuf;
 use tokio::runtime::Runtime;
 use tokio::task::spawn_blocking;
 use log::{debug, error, log_enabled, info, Level};
+use chrono::Local;
+use chrono::format::strftime::StrftimeItems;
 
 pub static S3_CLIENT: OnceCell<Arc<Client>> = OnceCell::new();
 
@@ -76,20 +81,70 @@ async fn dowload_file_from_s3_to_temp_dir_sdk(s3_file_name: &str) -> Result<Stri
     }
 }
 
+async fn upload_file_to_s3_(s3_file_name: &str, file_path: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let client = get_client_new();
+    match parse_s3_filename(&s3_file_name) {
+        Some((bucket, key, _)) => {
+            match upload_object(&client, &bucket, file_path, &key).await {
+                Ok(output) => Ok(output),
+                Err(e) => Err(format!("Error uploading file: {:?}", e).into())
+            }
+        },
+        None => Err("Invalid S3 filename".into())
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Process {
   pub name: String,
   pub run: bool,
+  pub tags: Option<Vec<String>>,
   pub effective: String, // Store effective date/time as a string for simplicity
 }
 
 pub struct MyCache {
-    pub all_processes: Vec<Process>,
+    pub all_processes: HashMap<String, Process>,
     pub cache_time: u64,
     pub etag: String,
 }
 
-pub async fn read_data() -> Result<(Vec<Process>, String), Box<dyn std::error::Error>> {
+pub fn create_process(name: &str, run: bool, tags: Option<Vec<String>>) -> Process {
+    let now = Local::now();
+    let effective = now.format("%Y-%m-%d %H:%M:%S").to_string();
+    Process {
+        name: name.to_string(),
+        run,
+        tags,
+        effective,
+    }
+}
+
+fn update_process(process: &mut Process, run: bool, tags: Option<Vec<String>>) {
+    process.run = run;
+    if let Some(t) = tags {
+        process.tags = Some(t); // Update tags only if Some(tags) is provided
+    }
+    let now = chrono::Local::now();
+    process.effective = now.format("%Y-%m-%d %H:%M:%S").to_string();
+}
+
+fn to_map(processes: Vec<Process>) -> HashMap<String, Process> {
+    let mut map = HashMap::new();
+    for p in processes {
+        map.insert(p.name.clone(), p);
+    }
+    map
+}
+
+fn to_list(processes: &HashMap<String, Process>) -> Vec<Process> {
+    let mut list = Vec::new();
+    for (_, v) in processes {
+        list.push(v.clone());
+    }
+    list
+}
+
+pub async fn read_data() -> Result<(HashMap<String, Process>, String), Box<dyn std::error::Error>> {
     let s3_file_name = env::var("s3_file").expect("s3_file not set");
     let temp_dir = env::var("tmpdir").expect("tmpdir not set");
     let mut load_path = PathBuf::from(temp_dir);
@@ -104,7 +159,8 @@ pub async fn read_data() -> Result<(Vec<Process>, String), Box<dyn std::error::E
                   
                     // Read the JSON data from the file
                     let data: Vec<Process> = from_reader(reader)?;
-                    Ok((data, etag))
+                    let data_map = to_map(data);
+                    Ok((data_map, etag))
                 },
                 Err(e) => {
                     Err(format!("Error downloading file: {:?}", e).into())
@@ -119,10 +175,28 @@ pub fn get_current_time() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
 }
 
-fn update_data(data: Vec<Process>) -> Result<()> {
-    let file = File::create("processes.json")?;
-    serde_json::to_writer(file, &data)?;
-    Ok(())
+async fn update_data(data: HashMap<String, Process>, etag: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let s3_file_name = env::var("s3_file").expect("s3_file not set");
+    let temp_dir = env::var("tmpdir").expect("tmpdir not set");
+    let mut load_path = PathBuf::from(temp_dir);
+    match parse_s3_filename(&s3_file_name) {
+        Some((_, _, file_name)) => {
+            load_path.push(file_name);
+            let upload_file_name = load_path.to_str().ok_or_else(|| "Invalid file path".to_string())?;
+            let file = File::create(&upload_file_name)?;
+            let data_list = to_list(&data);
+            serde_json::to_writer(file, &data_list)?;
+            let etag_new = get_etag(s3_file_name.as_str()).await?;
+            if etag != etag_new {
+                return Err("Please retry the operation".into());
+            }
+            match upload_file_to_s3_(&s3_file_name, upload_file_name).await {
+                Ok(etag_c) => Ok(etag_c),
+                Err(e) => Err(format!("Error uploading file: {:?}", e).into())
+            }
+        },
+        None => return Err("Invalid S3 filename".into())
+    }
 }
 
 async fn init_cache() -> MyCache {
@@ -141,6 +215,8 @@ async fn init_cache() -> MyCache {
 
 use tokio::task::block_in_place;
 
+use crate::s3_util::upload_object;
+
 impl MyCache {
     pub async fn get_instance() -> &'static Lazy<Mutex<MyCache>> {
         static INSTANCE: Lazy<Mutex<MyCache>> = Lazy::new(|| {
@@ -150,9 +226,12 @@ impl MyCache {
         &INSTANCE
     }
 
-    pub async fn write_cache(&self) {
-        match update_data(self.all_processes.clone()) {
-            Ok(_) => info!("Cache written!"),
+    pub async fn write_cache(&mut self) {
+        match update_data(self.all_processes.clone(), &self.etag).await {
+            Ok(etag) => {
+                info!("Cache written!, new etag = {}", etag);
+                self.etag = etag;
+            },
             Err(e) => error!("Error writing cache: {:?}", e)
         }
     }
@@ -174,8 +253,8 @@ impl MyCache {
         }
     }
 
-    pub async fn refresh_cache(&mut self) {
-        if self.should_refresh_cache().await {
+    pub async fn refresh_cache(&mut self, force_refresh: bool) {
+        if force_refresh || self.should_refresh_cache().await {
             let (processes, etag) = match read_data().await {
                 Ok((v, etag)) => (v, etag),
                 Err(e) => {
@@ -190,35 +269,42 @@ impl MyCache {
         }
     }
 
-    pub async fn add_process(&mut self, process: Process) {
-        match self.all_processes.iter().find(|p| p.name == process.name) {
-            Some(_) => {
-                info!("Process already exists");
-                return;
+    pub async fn add_process(&mut self, process: Process) -> Result<(), Box<dyn std::error::Error>> {
+        self.refresh_cache(true).await;
+        match self.all_processes.entry(process.name.clone()) {
+            std::collections::hash_map::Entry::Vacant(e) => {
+                // The key does not exist, insert the new process
+                e.insert(process);
+                self.write_cache().await;
+                Ok(())
             },
-            None => {
-                self.all_processes.push(process);
+            std::collections::hash_map::Entry::Occupied(_) => {
+                // The key already exists, return an error
+                let info = format!("Process {} already exists", process.name);
+                info!("{}", &info);
+                Err(info.into())
             }
         }
     }
 
-    pub async fn modify_process(&mut self, process: Process) {
-        let index = self.all_processes.iter().position(|p| p.name == process.name);
-        match index {
-            Some(i) => {
-                self.all_processes[i] = process;
+    pub async fn modify_process(&mut self, process: Process) -> Result<(), Box<dyn std::error::Error>> {
+        match self.all_processes.entry(process.name.clone()) {
+            std::collections::hash_map::Entry::Vacant(_) => {
+                // The key does not exist, insert the new process
+                let info = format!("Process with name {} already exists", process.name.clone());
+                error!("{}", &info);
+                Err(info.into())
             },
-            None => {
-                info!("Process not found");
+            std::collections::hash_map::Entry::Occupied(mut e) => {
+                // The key already exists, return an error
+                e.insert(process);
+                Ok(())
             }
         }
     }
 
     pub fn get_process(&self, process_name: &str) -> Option<Process> {
-        return match self.all_processes.iter().find(|p| p.name == process_name) {
-            Some(p) => Some(p.clone()),
-            None => None
-        };
+        self.all_processes.get(process_name).map(|p| p.clone())
     }
 }
 
