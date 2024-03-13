@@ -1,0 +1,120 @@
+openapi: 3.0.3
+info:
+  version: 1.0.0
+  title: Consumer Control API
+  description: |
+    Use this API to start and stop consumers that have linked with this
+      API to control their start and stop behavior.  
+      
+      The following operations can be done with this API:
+      1. Get current status of a consumer by name
+      2. Register a new consumer
+      3. Instruct a consumer to stop
+      4. Instruct a consumer to start / restart
+tags:
+  - name: Consumer Control
+paths:
+  /process:
+    get:
+      tags:
+        - Consumer Control
+      summary: Get consumer status
+      description: |
+        Get all details of a consumer by name  
+        If a process that has never been registered with this API 
+        before is queried, only the name and run is returned with the run
+        value set to true.
+      operationId: getConsumer
+      parameters: 
+        - name: key
+          in: query
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: The details of a Process
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessDetail'
+              examples:
+                predefined-process:
+                  summary: Predefined process
+                  value:
+                    name: "Process1"
+                    run: true
+                    tags: ["DMI", "V4"]
+                    effective: "2024-03-01T12:00:00"
+                undefined-process:
+                  summary: Undefined process
+                  value:
+                    name: "ProcessX"
+                    run: true
+    post:
+      tags:
+          - Consumer Control
+      summary: Register a new process
+      description: Register a new process in the API
+      operationId: addConsumer
+      requestBody: 
+        content: 
+          application/json: 
+            schema: 
+              $ref: '#/components/schemas/ProcessDetail'
+            examples:
+              create-process-request:
+                summary: Request
+                value:
+                  name: "Process1"
+                  run: true
+                  tags: ["DMI", "V4"]
+      responses: 
+        '201':
+          description: Process registered successfully
+          content:
+            application/json: 
+              schema:
+                $ref: '#/components/schemas/ProcessDetail'
+              examples:
+                created-process:
+                  summary: Created process
+                  value:
+                    name: "Process1"
+                    run: true
+                    tags: ["DMI", "V4"]
+                    effective: "2024-03-01T12:00:00"
+        '500':
+          description: Process already exists or other error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                  message:
+                    type: string
+              example:
+                code: 500
+                message: Failed to add process":"" Process processf alread exists
+components:
+  schemas: 
+    ProcessDetail:
+      type: object
+      properties: 
+        name:
+          type: string
+        run: 
+          type: boolean
+        tags:
+          type: array
+          items: 
+            type: string
+        effective:
+          type: string
+          format: date-time
+          readOnly: true
+      required: 
+        - name
+        - run

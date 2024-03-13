@@ -8,6 +8,7 @@ pub use cache::MyCache;
 pub use cache::read_process;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use actix_files as fs;
 use log::{debug, error, log_enabled, info, Level};
 
 mod s3_util;
@@ -64,7 +65,7 @@ async fn add_process_endpoint(data: web::Json<ProcessInput>, state: web::Data<Ar
     let process_new = cache::create_process(&process.name, process.run, process.tags.clone());
     match state.add_process(process_new.clone()).await {
         Ok(_) => {
-            HttpResponse::Ok().json(process_new)
+            HttpResponse::Created().json(process_new)
         }
         Err(e) => {
             let error_response = GenericErrorResponse { 
@@ -100,8 +101,10 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(cached_data.clone()))
-            .route("/", web::get().to(get_json_value))
-            .service(web::resource("/add_process").route(web::post().to(add_process_endpoint)))
+            .service(fs::Files::new("/docs", "./docs").show_files_listing())
+            .route("/", web::get().to(|| async { fs::NamedFile::open("./docs/openapi.html").unwrap() }))
+            .route("/process", web::get().to(get_json_value))
+            .service(web::resource("/process").route(web::post().to(add_process_endpoint)))
     })
     .bind(&server_str)?
     .run()

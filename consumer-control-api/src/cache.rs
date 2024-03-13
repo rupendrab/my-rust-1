@@ -298,6 +298,7 @@ impl MyCache {
             std::collections::hash_map::Entry::Occupied(mut e) => {
                 // The key already exists, return an error
                 e.insert(process);
+                self.write_cache().await;
                 Ok(())
             }
         }
