@@ -1,6 +1,8 @@
-use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{web, App, HttpResponse, HttpServer, Responder, Result, Error};
 use serde::{Deserialize, Serialize};
 use clap::Parser;
+use std::env;
+use std::path::PathBuf;
 
 mod cache;
 pub use cache::Process;
@@ -82,7 +84,7 @@ async fn main() -> std::io::Result<()> {
     env_logger::init();
     let args = Args::parse();
 
-    let server_str = format!("{}:{}", "127.0.0.1", args.port);
+    let server_str = format!("{}:{}", "0.0.0.0", args.port);
 
     let client = s3_util::get_client().await.expect("Failed to get S3 client");
     cache::S3_CLIENT.set(client).expect("Failed to set S3_CLIENT");
@@ -98,11 +100,23 @@ async fn main() -> std::io::Result<()> {
     let cached_data = Arc::new(Mutex::new(cached_data));
 
     info!("Using port: {}", args.port);    
+    let docs_dir = env::var("DOCS_DIR").unwrap_or_else(|_| "./docs".to_string());
+    let opanapi_file = format!("{}/openapi.html", docs_dir);
+
     HttpServer::new(move || {
+        let openapi_file_for_route = opanapi_file.clone();
+
         App::new()
             .app_data(web::Data::new(cached_data.clone()))
-            .service(fs::Files::new("/docs", "./docs").show_files_listing())
-            .route("/", web::get().to(|| async { fs::NamedFile::open("./docs/openapi.html").unwrap() }))
+            .service(fs::Files::new("/docs", &docs_dir).show_files_listing())
+            // .route("/", web::get().to(|| async { fs::NamedFile::open("./docs/openapi.html").unwrap() }))
+            .route("/", web::get().to(move || {
+                let openapi_path = PathBuf::from(openapi_file_for_route.clone());
+                async move {
+                    fs::NamedFile::open(&openapi_path)
+                        .map_err(Error::from) // This ensures the error is converted properly
+                }
+            }))
             .route("/process", web::get().to(get_json_value))
             .service(web::resource("/process").route(web::post().to(add_process_endpoint)))
     })

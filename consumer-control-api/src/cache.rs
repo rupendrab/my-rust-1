@@ -291,7 +291,7 @@ impl MyCache {
         match self.all_processes.entry(process.name.clone()) {
             std::collections::hash_map::Entry::Vacant(_) => {
                 // The key does not exist, insert the new process
-                let info = format!("Process with name {} already exists", process.name.clone());
+                let info = format!("Process with name {} does not exist", process.name.clone());
                 error!("{}", &info);
                 Err(info.into())
             },
