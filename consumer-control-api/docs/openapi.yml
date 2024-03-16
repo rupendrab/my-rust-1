@@ -165,6 +165,57 @@ paths:
               example:
                 code: 500
                 message: Failed to delete process":"" Process with name processf does not exist
+    patch:
+      tags:
+          - Single Process
+      summary: Update an existing process (partial)
+      description: | 
+        Update an existing process in the API (partial)  
+        ***One*** of `run` or `tags` must be specified along with `name`
+      operationId: patchConsumer
+      requestBody: 
+        content: 
+          application/json: 
+            schema: 
+              $ref: '#/components/schemas/ProcessDetailPatch'
+            examples: 
+              with-run:
+                summary: With run only
+                value:
+                  name: processx
+                  run: true
+              with-tags:
+                summary: With tags only
+                value:
+                  name: processx
+                  tags:
+                    - Postgresql
+                    - Analytics
+              with-run-tags:
+                summary: With run and tags
+                value:
+                  name: processx
+                  run: true
+                  tags:
+                    - Postgresql
+                    - Analyics
+      responses: 
+        '202':
+          description: Process updated successfully
+        '500':
+          description: Process does not exist or other error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                  message:
+                    type: string
+              example:
+                code: 500
+                message: Failed to update process":"" Process with name processx does not exist
 components:
   schemas: 
     ProcessDetail:
@@ -185,3 +236,24 @@ components:
       required: 
         - name
         - run
+    ProcessDetailPatch:
+      allOf:
+        - type: object
+          properties: 
+            name:
+              type: string
+          required: 
+            - name
+        - anyOf:
+            - type: object
+              properties:
+                run: 
+                  type: boolean
+              required: 
+                - run
+            - type: object
+              properties:
+                tags:
+                  type: array
+                  items: 
+                    type: string

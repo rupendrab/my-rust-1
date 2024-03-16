@@ -119,6 +119,17 @@ pub fn create_process(name: &str, run: bool, tags: Option<Vec<String>>) -> Proce
     }
 }
 
+pub fn update_process_partial(process: &mut Process, run: Option<bool>, tags: Option<Vec<String>>) {
+    if let Some(t) = tags {
+        process.tags = Some(t); // Update tags only if Some(tags) is provided
+    }
+    if let Some(r) = run {
+        process.run = r;
+    }
+    let now = Local::now();
+    process.effective = now.format("%Y-%m-%d %H:%M:%S").to_string();
+}
+
 fn update_process(process: &mut Process, run: bool, tags: Option<Vec<String>>) {
     process.run = run;
     if let Some(t) = tags {
@@ -308,6 +319,22 @@ impl MyCache {
         self.refresh_cache(true).await;
         match self.all_processes.remove(process_name) {
             Some(_) => {
+                self.write_cache().await;
+                Ok(())
+            },
+            None => {
+                let info = format!("Process with name {} does not exist", process_name);
+                error!("{}", &info);
+                Err(info.into())
+            }
+        }
+    }
+
+    pub async fn update_process_partial(&mut self, process_name: &str, run: Option<bool>, tags: Option<Vec<String>>) -> Result<(), Box<dyn std::error::Error>> {
+        self.refresh_cache(true).await;
+        match self.all_processes.get_mut(process_name) {
+            Some(p) => {
+                update_process_partial(p, run, tags);
                 self.write_cache().await;
                 Ok(())
             },

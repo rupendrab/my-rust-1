@@ -46,6 +46,20 @@ struct ProcessInput {
     tags: Option<Vec<String>>
 }
 
+#[derive(Serialize, Deserialize)]
+struct ProcessPatchInput {
+    name: String,
+    run: Option<bool>,
+    tags: Option<Vec<String>>
+}
+
+impl ProcessPatchInput {
+    fn validatePatch(&self) -> bool {
+        // Check that either `run` or `tags` is provided
+        self.run.is_some() || self.tags.is_some()
+    }
+}
+
 #[derive(Deserialize)]
 pub struct DeleteProcessInput {
     process_name: String,
@@ -120,6 +134,26 @@ async fn delete_process_endpoint(query: web::Query<DeleteProcessInput>, state: w
     }
 }
 
+async fn patch_process_endpoint(input: web::Json<ProcessPatchInput>, state: web::Data<Arc<Mutex<MyCache>>>) -> impl Responder {
+    let mut state = state.lock().await;
+    if !input.validatePatch() {
+        return HttpResponse::InternalServerError().json("Either 'run' or 'tags' must be specified.");
+    }
+    info!("Patching process: {}", input.name);
+    match state.update_process_partial(&input.name, input.run, input.tags.clone()).await {
+        Ok(_) => {
+            HttpResponse::Ok().json("Process patched successfully.")
+        }
+        Err(e) => {
+            let error_response = GenericErrorResponse { 
+                code: 500, 
+                message: format!("Failed to patch process: {}", e)
+            };
+            HttpResponse::InternalServerError().json(error_response)
+        }
+    }
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init();
@@ -163,7 +197,8 @@ async fn main() -> std::io::Result<()> {
                     .route(web::get().to(get_json_value))
                     .route(web::post().to(add_process_endpoint))
                     .route(web::put().to(update_process_endpoint))
-                    .route(web::delete().to(delete_process_endpoint)),
+                    .route(web::delete().to(delete_process_endpoint))
+                    .route(web::patch().to(patch_process_endpoint)),
             )
     })
     .bind(&server_str)?
