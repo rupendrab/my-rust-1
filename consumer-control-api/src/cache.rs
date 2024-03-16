@@ -304,6 +304,21 @@ impl MyCache {
         }
     }
 
+    pub async fn delete_process(&mut self, process_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+        self.refresh_cache(true).await;
+        match self.all_processes.remove(process_name) {
+            Some(_) => {
+                self.write_cache().await;
+                Ok(())
+            },
+            None => {
+                let info = format!("Process with name {} does not exist", process_name);
+                error!("{}", &info);
+                Err(info.into())
+            }
+        }
+    }
+
     pub fn get_process(&self, process_name: &str) -> Option<Process> {
         self.all_processes.get(process_name).map(|p| p.clone())
     }

@@ -24,7 +24,7 @@ struct Args {
 
 #[derive(Deserialize)]
 struct QueryParams {
-    key: String,
+    process_name: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -46,14 +46,19 @@ struct ProcessInput {
     tags: Option<Vec<String>>
 }
 
+#[derive(Deserialize)]
+pub struct DeleteProcessInput {
+    process_name: String,
+}
+
 async fn get_json_value(data: web::Data<Arc<Mutex<MyCache>>>, query: web::Query<QueryParams>) -> impl Responder {
     let mut data = data.lock().await;
     data.refresh_cache(false).await;
-    match data.get_process(&query.key) {
+    match data.get_process(&query.process_name) {
         Some(p) => HttpResponse::Ok().json(p),
         None => {
             let error_response = ErrorResponse {
-                name: query.key.clone(),
+                name: query.process_name.clone(),
                 run: true,
             };
             HttpResponse::NotFound().json(error_response)
@@ -73,6 +78,42 @@ async fn add_process_endpoint(data: web::Json<ProcessInput>, state: web::Data<Ar
             let error_response = GenericErrorResponse { 
                 code: 500, 
                 message: format!("Failed to add process: {}", e)
+            };
+            HttpResponse::InternalServerError().json(error_response)
+        }
+    }
+}
+
+async fn update_process_endpoint(data: web::Json<ProcessInput>, state: web::Data<Arc<Mutex<MyCache>>>) -> HttpResponse {
+    let mut state = state.lock().await;
+    let process = data.into_inner();
+    let process_new = cache::create_process(&process.name, process.run, process.tags.clone());
+    match state.modify_process(process_new.clone()).await {
+        Ok(_) => {
+            HttpResponse::Accepted().json("Process updated successfully!")
+        }
+        Err(e) => {
+            let error_response = GenericErrorResponse { 
+                code: 500, 
+                message: format!("Failed to add process: {}", e)
+            };
+            HttpResponse::InternalServerError().json(error_response)
+        }
+    }
+}
+
+async fn delete_process_endpoint(query: web::Query<DeleteProcessInput>, state: web::Data<Arc<Mutex<MyCache>>>) -> impl Responder {
+    let mut state = state.lock().await;
+    let process_name = &query.process_name;
+    info!("Deleting process: {}", process_name);
+    match state.delete_process(&process_name).await {
+        Ok(_) => {
+            HttpResponse::Ok().json(format!("Process {} deleted successfully", process_name))
+        }
+        Err(e) => {
+            let error_response = GenericErrorResponse { 
+                code: 500, 
+                message: format!("Failed to delete process: {}", e)
             };
             HttpResponse::InternalServerError().json(error_response)
         }
@@ -99,7 +140,7 @@ async fn main() -> std::io::Result<()> {
     };
     let cached_data = Arc::new(Mutex::new(cached_data));
 
-    info!("Using port: {}", args.port);    
+    info!("Using port: {}", args.port);
     let docs_dir = env::var("DOCS_DIR").unwrap_or_else(|_| "./docs".to_string());
     let opanapi_file = format!("{}/openapi.html", docs_dir);
 
@@ -117,8 +158,13 @@ async fn main() -> std::io::Result<()> {
                         .map_err(Error::from) // This ensures the error is converted properly
                 }
             }))
-            .route("/process", web::get().to(get_json_value))
-            .service(web::resource("/process").route(web::post().to(add_process_endpoint)))
+            .service(
+                web::resource("/process")
+                    .route(web::get().to(get_json_value))
+                    .route(web::post().to(add_process_endpoint))
+                    .route(web::put().to(update_process_endpoint))
+                    .route(web::delete().to(delete_process_endpoint)),
+            )
     })
     .bind(&server_str)?
     .run()

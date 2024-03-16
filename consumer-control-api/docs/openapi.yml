@@ -12,12 +12,15 @@ info:
       3. Instruct a consumer to stop
       4. Instruct a consumer to start / restart
 tags:
-  - name: Consumer Control
+  - name: Single Process
+    description: Operations related to a single process
+  - name: Complex
+    description: Operations to handle multiple processes
 paths:
   /process:
     get:
       tags:
-        - Consumer Control
+        - Single Process
       summary: Get consumer status
       description: |
         Get all details of a consumer by name  
@@ -26,7 +29,7 @@ paths:
         value set to true.
       operationId: getConsumer
       parameters: 
-        - name: key
+        - name: process_name
           in: query
           schema:
             type: string
@@ -53,7 +56,7 @@ paths:
                     run: true
     post:
       tags:
-          - Consumer Control
+          - Single Process
       summary: Register a new process
       description: Register a new process in the API
       operationId: addConsumer
@@ -98,6 +101,70 @@ paths:
               example:
                 code: 500
                 message: Failed to add process":"" Process processf alread exists
+    put:
+      tags:
+          - Single Process
+      summary: Update an existing process
+      description: Update an existing process in the API
+      operationId: updateConsumer
+      requestBody: 
+        content: 
+          application/json: 
+            schema: 
+              $ref: '#/components/schemas/ProcessDetail'
+            examples:
+              create-process-request:
+                summary: Request
+                value:
+                  name: "processf"
+                  run: true
+                  tags: ["DMI", "V4"]
+      responses: 
+        '202':
+          description: Process updated successfully
+        '500':
+          description: Process does not exist or other error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                  message:
+                    type: string
+              example:
+                code: 500
+                message: Failed to update process":"" Process with name processf does not exist
+    delete:
+      tags:
+          - Single Process
+      summary: Delete an existing process
+      description: Delete an existing process in the API
+      operationId: deleteConsumer
+      parameters: 
+        - name: process_name
+          in: query
+          schema:
+            type: string
+          required: true
+      responses:
+        '204':
+          description: Process deleted successfully
+        '500':
+          description: Process does not exist or other error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                  message:
+                    type: string
+              example:
+                code: 500
+                message: Failed to delete process":"" Process with name processf does not exist
 components:
   schemas: 
     ProcessDetail:
