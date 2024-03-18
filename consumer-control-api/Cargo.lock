@@ -915,6 +915,7 @@ dependencies = [
  "once_cell",
  "serde",
  "serde_json",
+ "serde_qs",
  "thiserror",
  "tokio",
  "tokio-util",
@@ -2045,6 +2046,17 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "serde_qs"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0431a35568651e363364210c91983c1da5eb29404d9f0928b67d4ebcfa7d330c"
+dependencies = [
+ "percent-encoding",
+ "serde",
+ "thiserror",
 ]
 
 [[package]]

@@ -216,6 +216,70 @@ paths:
               example:
                 code: 500
                 message: Failed to update process":"" Process with name processx does not exist
+  /processes:
+    get:
+      tags:
+        - Complex
+      summary: Get consumer status
+      description: |
+        Get all details of a consumer by multiple parameters  
+        1. Tags
+        2. Process Name Prefix
+        3. Run (true or false)
+      operationId: getConsumers
+      parameters: 
+        - name: tags[]
+          in: query
+          description: Tags
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          example:
+            - ES
+            - DMI    
+        - name: name_prefixes[]
+          in: query
+          description: Perfix of names
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          example:
+            - process1
+        - name: run
+          in: query
+          description: Run status (true/false)
+          required: false
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: The details of a Process
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProcessDetail'
+              examples:
+                processes:
+                  summary: Processes
+                  value:
+                    - name: "Process1"
+                      run: true
+                      tags: ["DMI", "V4"]
+                      effective: "2024-03-01T12:00:00"
+                    - name: "Process1"
+                      run: true
+                      tags: ["MD", "V4", "ES"]
+                      effective: "2024-03-01T12:00:00"
 components:
   schemas: 
     ProcessDetail:

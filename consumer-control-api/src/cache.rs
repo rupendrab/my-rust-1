@@ -5,7 +5,7 @@ use once_cell::sync::Lazy;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use std::fs::File;
+use std::fs::{soft_link, File};
 use std::io::{BufReader};
 use serde::{Deserialize, Serialize};
 use serde_json::{from_reader};
@@ -21,6 +21,8 @@ use tokio::task::spawn_blocking;
 use log::{debug, error, log_enabled, info, Level};
 use chrono::Local;
 use chrono::format::strftime::StrftimeItems;
+
+use crate::ProcessQueryParams;
 
 pub static S3_CLIENT: OnceCell<Arc<Client>> = OnceCell::new();
 
@@ -224,6 +226,52 @@ async fn init_cache() -> MyCache {
     }
 }
 
+fn filter_processes_by_tags(processes: Vec<Process>, input_tags: &Option<Vec<String>>) -> Vec<Process> {
+    // print input_tags
+    match input_tags {
+        Some(tags) => processes.into_iter()
+            .filter(|process| {
+                // If process.tags is None, it cannot contain any tags, so exclude it by returning false
+                if let Some(process_tags) = &process.tags {
+                    // Check if all input tags are contained within the process's tags
+                    tags.iter().all(|tag| process_tags.contains(tag))
+                } else {
+                    false
+                }
+            })
+            .collect(),
+        None => processes,
+    }
+}
+
+fn filter_processes_by_name_prefix(processes: Vec<Process>, name_prefixes: &Option<Vec<String>>) -> Vec<Process> {
+    match name_prefixes {
+        Some(prefixes) => processes.into_iter()
+            .filter(|process| {
+                // Check if process's name starts with any of the prefixes
+                prefixes.iter().any(|prefix| process.name.starts_with(prefix))
+            })
+            .collect(),
+        None => processes,
+    }
+}
+
+fn filter_processes_by_run(processes: Vec<Process>, run: &Option<bool>) -> Vec<Process> {
+    match run {
+        Some(r) => processes.into_iter()
+            .filter(|process| process.run == *r)
+            .collect(),
+        None => processes,
+    }
+}
+
+fn filter_processes(processes: Vec<Process>, query: &ProcessQueryParams) -> Vec<Process> {
+    let mut filtered_processes = filter_processes_by_tags(processes, &query.tags);
+    filtered_processes = filter_processes_by_name_prefix(filtered_processes, &query.name_prefixes);
+    filtered_processes = filter_processes_by_run(filtered_processes, &query.run);
+    filtered_processes
+}
+
 use tokio::task::block_in_place;
 
 use crate::s3_util::upload_object;
@@ -348,6 +396,11 @@ impl MyCache {
 
     pub fn get_process(&self, process_name: &str) -> Option<Process> {
         self.all_processes.get(process_name).map(|p| p.clone())
+    }
+
+    pub fn filter_processes(&self, query: &ProcessQueryParams) -> Vec<Process> {
+        let processes = to_list(&self.all_processes);
+        filter_processes(processes, query)
     }
 }
 

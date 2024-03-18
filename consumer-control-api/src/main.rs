@@ -1,7 +1,9 @@
-use actix_web::{web, App, HttpResponse, HttpServer, Responder, Result, Error};
-use serde::{Deserialize, Serialize};
+use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, Result, Error};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde::de::{self, Visitor, MapAccess};
+use serde_qs as qs;
 use clap::Parser;
-use std::env;
+use std::{env, fmt};
 use std::path::PathBuf;
 
 mod cache;
@@ -63,6 +65,68 @@ impl ProcessPatchInput {
 #[derive(Deserialize)]
 pub struct DeleteProcessInput {
     process_name: String,
+}
+
+#[derive(Debug, Default)]
+struct ProcessQueryParams {
+    tags: Option<Vec<String>>,
+    name_prefixes: Option<Vec<String>>,
+    run: Option<bool>,
+}
+
+impl<'de> Deserialize<'de> for ProcessQueryParams {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "lowercase")]
+        enum Field { Tags, NamePrefixes, Run }
+
+        struct ProcessQueryParamsVisitor;
+
+        impl<'de> Visitor<'de> for ProcessQueryParamsVisitor {
+            type Value = ProcessQueryParams;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct ProcessQueryParams")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<ProcessQueryParams, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut params = ProcessQueryParams::default();
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "tags" => {
+                            if params.tags.is_some() {
+                                return Err(de::Error::duplicate_field("tags[]"));
+                            }
+                            params.tags = Some(map.next_value()?);
+                        },
+                        "name_prefixes" => {
+                            if params.name_prefixes.is_some() {
+                                return Err(de::Error::duplicate_field("name_prefixes[]"));
+                            }
+                            params.name_prefixes = Some(map.next_value()?);
+                        },
+                        "run" => {
+                            if params.run.is_some() {
+                                return Err(de::Error::duplicate_field("run"));
+                            }
+                            params.run = Some(map.next_value()?);
+                        },
+                        _ => return Err(de::Error::unknown_field(&key, FIELDS)),
+                    }
+                }
+                Ok(params)
+            }
+        }
+
+        const FIELDS: &'static [&'static str] = &["tags", "name_prefixes", "run"];
+        deserializer.deserialize_struct("ProcessQueryParams", FIELDS, ProcessQueryParamsVisitor)
+    }
 }
 
 async fn get_json_value(data: web::Data<Arc<Mutex<MyCache>>>, query: web::Query<QueryParams>) -> impl Responder {
@@ -154,6 +218,35 @@ async fn patch_process_endpoint(input: web::Json<ProcessPatchInput>, state: web:
     }
 }
 
+/*
+async fn get_processes(query: web::Query<ProcessQueryParams>, state: web::Data<Arc<Mutex<MyCache>>>) -> impl Responder {
+    let state = state.lock().await;
+    let processes = state.filter_processes(&query);
+    HttpResponse::Ok().json(processes)
+}
+*/
+fn decode_brackets(encoded_str: &str) -> String {
+    let decoded = encoded_str
+        .replace("%5B", "[")
+        .replace("%5D", "]");
+    decoded
+}
+
+async fn get_processes(req: HttpRequest, state: web::Data<Arc<Mutex<MyCache>>>) -> HttpResponse {
+    let query_string = req.query_string();
+    let query_string_decoded = decode_brackets(query_string);
+    let query_params: Result<ProcessQueryParams, _> = qs::from_str(&query_string_decoded);
+
+    match query_params {
+        Ok(params) => {
+            let state = state.lock().await;
+            let processes = state.filter_processes(&params);
+            HttpResponse::Ok().json(processes)
+        },
+        Err(_) => HttpResponse::BadRequest().body("Invalid query parameters"),
+    }
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init();
@@ -199,6 +292,10 @@ async fn main() -> std::io::Result<()> {
                     .route(web::put().to(update_process_endpoint))
                     .route(web::delete().to(delete_process_endpoint))
                     .route(web::patch().to(patch_process_endpoint)),
+            )
+            .service(
+                web::resource("/processes")
+                    .route(web::get().to(get_processes)),
             )
     })
     .bind(&server_str)?
