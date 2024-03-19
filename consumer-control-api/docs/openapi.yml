@@ -239,8 +239,8 @@ paths:
           style: form
           explode: true
           example:
-            - ES
-            - DMI    
+            - es
+            - dmi    
         - name: name_prefixes[]
           in: query
           description: Perfix of names
@@ -272,14 +272,72 @@ paths:
                 processes:
                   summary: Processes
                   value:
-                    - name: "Process1"
+                    - name: "process1"
                       run: true
-                      tags: ["DMI", "V4"]
+                      tags: ["dmi", "v4"]
                       effective: "2024-03-01T12:00:00"
-                    - name: "Process1"
+                    - name: "process2"
                       run: true
-                      tags: ["MD", "V4", "ES"]
+                      tags: ["md", "v4", "es"]
                       effective: "2024-03-01T12:00:00"
+  /processes/{action}:
+    patch:
+      tags:
+        - Complex
+      summary: Start or stop processes (consumers)
+      description: |
+        Start or stop processes by specifying:  
+        1. Tags
+        2. Process Name wildracrs
+      operationId: startStopConsumers
+      parameters: 
+        - name: action
+          description: Specify start or stop
+          in: path
+          required: true
+          schema:
+            type: string
+          examples:
+            start:
+              summary: Start
+              value: start
+            stop:
+              summary: Stop
+              value: stop
+      requestBody: 
+        content: 
+          application/json: 
+            schema:
+              $ref: '#/components/schemas/ProcessQuery'
+            examples:
+              name-match:
+                summary: Match by name
+                value:
+                  name_patterns: 
+                    - process*
+              tag-match:
+                summary: Match by tags
+                value: 
+                  tags:
+                    - v4
+                    - dmi
+              name-tag-match:
+                summary: Match by name and tags
+                value:
+                  name_patterns: 
+                    - process*
+                  tags:
+                    - v4
+                    - dmi
+      responses:
+        '200':
+          description: Processes started / stopped successfully
+          content:
+            application/json: 
+              schema: 
+                type: array
+                items: 
+                  $ref: '#/components/schemas/ProcessDetail'
 components:
   schemas: 
     ProcessDetail:
@@ -300,6 +358,20 @@ components:
       required: 
         - name
         - run
+    ProcessQuery:
+        anyOf:
+          - type: object
+            properties:
+              name_patterns:
+                type: array
+                items:
+                  type: string
+          - type: object
+            properties:
+              tags:
+                type: array
+                items: 
+                  type: string
     ProcessDetailPatch:
       allOf:
         - type: object

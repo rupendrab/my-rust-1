@@ -1,4 +1,5 @@
-use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, Result, Error};
+use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, Result, Error, patch};
+use aws_config::retry::ProvideErrorKind;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde::de::{self, Visitor, MapAccess};
 use serde_qs as qs;
@@ -68,7 +69,7 @@ pub struct DeleteProcessInput {
 }
 
 #[derive(Debug, Default)]
-struct ProcessQueryParams {
+pub struct ProcessQueryParams {
     tags: Option<Vec<String>>,
     name_prefixes: Option<Vec<String>>,
     run: Option<bool>,
@@ -127,6 +128,12 @@ impl<'de> Deserialize<'de> for ProcessQueryParams {
         const FIELDS: &'static [&'static str] = &["tags", "name_prefixes", "run"];
         deserializer.deserialize_struct("ProcessQueryParams", FIELDS, ProcessQueryParamsVisitor)
     }
+}
+
+#[derive(Deserialize)]
+pub struct ProcessQuery {
+    name_patterns: Option<Vec<String>>,
+    tags: Option<Vec<String>>,
 }
 
 async fn get_json_value(data: web::Data<Arc<Mutex<MyCache>>>, query: web::Query<QueryParams>) -> impl Responder {
@@ -240,10 +247,44 @@ async fn get_processes(req: HttpRequest, state: web::Data<Arc<Mutex<MyCache>>>) 
     match query_params {
         Ok(params) => {
             let state = state.lock().await;
-            let processes = state.filter_processes(&params);
+            let mut processes = state.filter_processes(&params).clone();
+            processes.sort_by_key(|p| p.name.clone());
             HttpResponse::Ok().json(processes)
         },
         Err(_) => HttpResponse::BadRequest().body("Invalid query parameters"),
+    }
+}
+
+#[patch("/processes/{action}")]
+async fn start_stop_consumers(
+    path: web::Path<String>, // Extracts the 'action' path parameter
+    query: web::Json<ProcessQuery>, // Extracts and deserializes the JSON request body
+    state: web::Data<Arc<Mutex<MyCache>>>
+) -> impl Responder {
+    let action = path.into_inner();
+    let query = query.into_inner();
+    
+    match cache::run_str_to_bool(&action) {
+        Ok(run) => {
+            let mut state = state.lock().await;
+            match state.control_processes(&query, run).await {
+                Ok(processes) => {
+                    let mut processes = processes.clone();
+                    processes.sort_by_key(|p| p.name.clone());
+                    HttpResponse::Ok().json(processes)
+                }
+                Err(e) => {
+                    let error_response = GenericErrorResponse { 
+                        code: 500, 
+                        message: format!("Failed to start/stop processes: {}", e)
+                    };
+                    HttpResponse::InternalServerError().json(error_response)
+                }
+            }
+        },
+        Err(msg) => {
+            HttpResponse::BadRequest().body(msg)
+        }
     }
 }
 
@@ -297,6 +338,7 @@ async fn main() -> std::io::Result<()> {
                 web::resource("/processes")
                     .route(web::get().to(get_processes)),
             )
+            .service(start_stop_consumers)
     })
     .bind(&server_str)?
     .run()

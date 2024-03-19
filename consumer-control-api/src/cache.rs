@@ -21,8 +21,10 @@ use tokio::task::spawn_blocking;
 use log::{debug, error, log_enabled, info, Level};
 use chrono::Local;
 use chrono::format::strftime::StrftimeItems;
+use glob::Pattern;
+use std::error::Error;
 
-use crate::ProcessQueryParams;
+use crate::{ProcessQueryParams, ProcessQuery};
 
 pub static S3_CLIENT: OnceCell<Arc<Client>> = OnceCell::new();
 
@@ -256,6 +258,36 @@ fn filter_processes_by_name_prefix(processes: Vec<Process>, name_prefixes: &Opti
     }
 }
 
+fn filter_processes_by_name_patterns(processes: Vec<Process>, name_patterns: &Option<Vec<String>>) -> Result<Vec<Process>, Box<dyn Error>> {
+    match name_patterns {
+        Some(in_patterns) => {
+            let mut filtered_processes = Vec::new();
+
+            // Convert strings to glob patterns
+            // let patterns: Result<Vec<Pattern>, glob::PatternError> = name_patterns.into_iter().map(Pattern::new).collect();
+            let mut patterns = Vec::new();
+            for name_pattern in in_patterns {
+                // Use &name_pattern to pass a &str instead of String
+                match Pattern::new(&name_pattern) {
+                    Ok(pattern) => patterns.push(pattern),
+                    Err(e) => return Err(Box::new(e)),
+                }
+            }
+        
+            for process in processes {
+                for pattern in &patterns {
+                    if pattern.matches(&process.name) {
+                        filtered_processes.push(process.clone());
+                        break; // Move to the next process once a match is found
+                    }
+                }
+            }
+            Ok(filtered_processes)
+        },
+        None => Ok(processes),
+    }
+}
+
 fn filter_processes_by_run(processes: Vec<Process>, run: &Option<bool>) -> Vec<Process> {
     match run {
         Some(r) => processes.into_iter()
@@ -270,6 +302,20 @@ fn filter_processes(processes: Vec<Process>, query: &ProcessQueryParams) -> Vec<
     filtered_processes = filter_processes_by_name_prefix(filtered_processes, &query.name_prefixes);
     filtered_processes = filter_processes_by_run(filtered_processes, &query.run);
     filtered_processes
+}
+
+fn filter_processes_pattern(processes: Vec<Process>, query: &ProcessQuery) -> Vec<Process> {
+    let mut filtered_processes = filter_processes_by_tags(processes, &query.tags);
+    filtered_processes = filter_processes_by_name_patterns(filtered_processes, &query.name_patterns).unwrap();
+    filtered_processes
+}
+
+pub fn run_str_to_bool(input: &str) -> Result<bool, String> {
+    match input {
+        "start" => Ok(true),
+        "stop" => Ok(false),
+        _ => Err(format!("Invalid input: '{}'. Expected 'start' or 'stop'.", input)),
+    }
 }
 
 use tokio::task::block_in_place;
@@ -401,6 +447,25 @@ impl MyCache {
     pub fn filter_processes(&self, query: &ProcessQueryParams) -> Vec<Process> {
         let processes = to_list(&self.all_processes);
         filter_processes(processes, query)
+    }
+
+    pub fn filter_processes_pattern(&self, query: &ProcessQuery) -> Vec<Process> {
+        let processes = to_list(&self.all_processes);
+        filter_processes_pattern(processes, query)
+    }
+
+    pub async fn control_processes(&mut self, query: &ProcessQuery, run: bool) -> Result<(Vec<Process>), Box<dyn std::error::Error>> {
+        self.refresh_cache(true).await;
+        let processes = self.filter_processes_pattern(query);
+        let mut updated_processes: Vec<Process> = Vec::new();
+        for process in processes {
+            let process_name = process.name.clone();
+            let p = self.all_processes.get_mut(&process_name).unwrap();
+            update_process_partial(p, Some(run), None);
+            updated_processes.push(p.clone());
+        }
+        self.write_cache().await;
+        Ok((updated_processes))
     }
 }
 
