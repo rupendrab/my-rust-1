@@ -224,7 +224,7 @@ paths:
       description: |
         Get all details of a consumer by multiple parameters  
         1. Tags
-        2. Process Name Prefix
+        2. Process Name Patterns
         3. Run (true or false)
       operationId: getConsumers
       parameters: 
@@ -241,9 +241,9 @@ paths:
           example:
             - es
             - dmi    
-        - name: name_prefixes[]
+        - name: name_patterns[]
           in: query
-          description: Perfix of names
+          description: Wildcard (glob) pattern for names
           required: false
           schema:
             type: array
@@ -252,7 +252,7 @@ paths:
           style: form
           explode: true
           example:
-            - process1
+            - process[1-3]
         - name: run
           in: query
           description: Run status (true/false)

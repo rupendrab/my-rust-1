@@ -71,7 +71,7 @@ pub struct DeleteProcessInput {
 #[derive(Debug, Default)]
 pub struct ProcessQueryParams {
     tags: Option<Vec<String>>,
-    name_prefixes: Option<Vec<String>>,
+    name_patterns: Option<Vec<String>>,
     run: Option<bool>,
 }
 
@@ -106,11 +106,11 @@ impl<'de> Deserialize<'de> for ProcessQueryParams {
                             }
                             params.tags = Some(map.next_value()?);
                         },
-                        "name_prefixes" => {
-                            if params.name_prefixes.is_some() {
-                                return Err(de::Error::duplicate_field("name_prefixes[]"));
+                        "name_patterns" => {
+                            if params.name_patterns.is_some() {
+                                return Err(de::Error::duplicate_field("name_patterns[]"));
                             }
-                            params.name_prefixes = Some(map.next_value()?);
+                            params.name_patterns = Some(map.next_value()?);
                         },
                         "run" => {
                             if params.run.is_some() {
@@ -125,7 +125,7 @@ impl<'de> Deserialize<'de> for ProcessQueryParams {
             }
         }
 
-        const FIELDS: &'static [&'static str] = &["tags", "name_prefixes", "run"];
+        const FIELDS: &'static [&'static str] = &["tags", "name_patterns", "run"];
         deserializer.deserialize_struct("ProcessQueryParams", FIELDS, ProcessQueryParamsVisitor)
     }
 }

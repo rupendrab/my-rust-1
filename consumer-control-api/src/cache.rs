@@ -299,7 +299,8 @@ fn filter_processes_by_run(processes: Vec<Process>, run: &Option<bool>) -> Vec<P
 
 fn filter_processes(processes: Vec<Process>, query: &ProcessQueryParams) -> Vec<Process> {
     let mut filtered_processes = filter_processes_by_tags(processes, &query.tags);
-    filtered_processes = filter_processes_by_name_prefix(filtered_processes, &query.name_prefixes);
+    filtered_processes = filter_processes_by_name_patterns(filtered_processes, &query.name_patterns).unwrap();
+    // filtered_processes = filter_processes_by_name_prefix(filtered_processes, &query.name_prefixes);
     filtered_processes = filter_processes_by_run(filtered_processes, &query.run);
     filtered_processes
 }
