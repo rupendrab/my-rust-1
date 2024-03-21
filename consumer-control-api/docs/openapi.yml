@@ -280,6 +280,55 @@ paths:
                       run: true
                       tags: ["md", "v4", "es"]
                       effective: "2024-03-01T12:00:00"
+    put:
+      tags:
+        - Complex
+      summary: Add/Update multiple processes
+      description: |
+        Accepts an array or ProcessDetailPatch objects. If the Process
+        already exists in the database, it is updated. Otherwise, it is
+        added to the database.  
+        For addition, if run is not specified, it is interpreted as false.
+      operationId: putConsumers
+      requestBody: 
+        content: 
+          application/json: 
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/ProcessDetailPatch'
+            examples:
+              example1:
+                summary: Example 1
+                value:
+                  - name: process1
+                  - name: process2
+                    tags:
+                      - es
+                      - md
+                  - name: process3
+                    run: true
+                  - name: process4
+                    run: false
+                    tags:
+                      - postgresql
+      responses:
+        '200':
+          description: Processes saved successfully
+        '400':
+          description: Could not save processes due to errors in data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProcessError'
+              examples:
+                error-1:
+                  summary: Sample error
+                  value:
+                    - name: process1
+                      error_message: Process could not be saved because of ...
   /processes/{action}:
     patch:
       tags:
@@ -393,3 +442,10 @@ components:
                   type: array
                   items: 
                     type: string
+    ProcessError:
+      type: object
+      properties:
+        name:
+          type: string
+        error_message:
+          type: string
