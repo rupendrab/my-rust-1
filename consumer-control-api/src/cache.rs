@@ -24,7 +24,7 @@ use chrono::format::strftime::StrftimeItems;
 use glob::Pattern;
 use std::error::Error;
 
-use crate::{ProcessQueryParams, ProcessQuery};
+use crate::{ProcessQueryParams, ProcessQuery, ProcessPatchInput, ProcessMessage};
 
 pub static S3_CLIENT: OnceCell<Arc<Client>> = OnceCell::new();
 
@@ -440,6 +440,36 @@ impl MyCache {
         }
     }
 
+    pub async fn merge_processes(&mut self, process_inputs: Vec<ProcessPatchInput>) -> Result<Vec<ProcessMessage>, Box<dyn std::error::Error>> {
+        self.refresh_cache(true).await;
+        let mut process_messages: Vec<ProcessMessage> = Vec::new();
+        for process_input in process_inputs {
+            match self.all_processes.get_mut(&process_input.name) {
+                Some(p) => {
+                    update_process_partial(p, process_input.run, process_input.tags);
+                    process_messages.push(ProcessMessage {
+                        name: process_input.name.clone(),
+                        action: "Updated".to_string(),
+                    });
+                },
+                None => {
+                    let n_run = match process_input.run {
+                        Some(run) => run,
+                        None => false,
+                    };
+                    let p = create_process(&process_input.name, n_run, process_input.tags);
+                    self.all_processes.insert(p.name.clone(), p);
+                    process_messages.push(ProcessMessage {
+                        name: process_input.name.clone(),
+                        action: "Added".to_string(),
+                    });
+                }
+            }
+        }
+        self.write_cache().await;
+        Ok(process_messages)
+    }
+
     pub fn get_process(&self, process_name: &str) -> Option<Process> {
         self.all_processes.get(process_name).map(|p| p.clone())
     }
@@ -465,7 +495,7 @@ impl MyCache {
             updated_processes.push(p.clone());
         }
         self.write_cache().await;
-        Ok((updated_processes))
+        Ok(updated_processes)
     }
 }
 

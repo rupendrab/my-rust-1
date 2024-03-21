@@ -136,6 +136,18 @@ pub struct ProcessQuery {
     tags: Option<Vec<String>>,
 }
 
+#[derive(Serialize)]
+struct ProcessError {
+    name: String,
+    error_message: String,
+}
+
+#[derive(Serialize)]
+struct ProcessMessage {
+    name: String,
+    action: String,
+}
+
 async fn get_json_value(data: web::Data<Arc<Mutex<MyCache>>>, query: web::Query<QueryParams>) -> impl Responder {
     let mut data = data.lock().await;
     data.refresh_cache(false).await;
@@ -288,6 +300,23 @@ async fn start_stop_consumers(
     }
 }
 
+async fn put_processes(process_inputs: web::Json<Vec<ProcessPatchInput>>, state: web::Data<Arc<Mutex<MyCache>>>) -> impl Responder {
+    let mut state = state.lock().await;
+    match state.merge_processes(process_inputs.into_inner()).await {
+        Ok(process_messages) => {
+            HttpResponse::Ok().json(process_messages)
+        }
+        Err(e) => {
+            let error_response = GenericErrorResponse { 
+                code: 500, 
+                message: format!("Failed to update processes: {}", e)
+            };
+            HttpResponse::InternalServerError().json(error_response)
+        }
+    
+    }
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init();
@@ -336,7 +365,8 @@ async fn main() -> std::io::Result<()> {
             )
             .service(
                 web::resource("/processes")
-                    .route(web::get().to(get_processes)),
+                    .route(web::get().to(get_processes))
+                    .route(web::put().to(put_processes)),
             )
             .service(start_stop_consumers)
     })

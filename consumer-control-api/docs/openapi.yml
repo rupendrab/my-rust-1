@@ -220,7 +220,7 @@ paths:
     get:
       tags:
         - Complex
-      summary: Get consumer status
+      summary: Query Processes by multiple parameters
       description: |
         Get all details of a consumer by multiple parameters  
         1. Tags
@@ -315,20 +315,34 @@ paths:
       responses:
         '200':
           description: Processes saved successfully
+          content:
+            application/json: 
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProcessMessage'
+              examples:
+                example-1:
+                  summary: Example
+                  value:
+                    - name: process1
+                      action: Updated
+                    - name: process3
+                      action: Added
+                    - name: process4
+                      action: Added
         '400':
           description: Could not save processes due to errors in data
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ProcessError'
+                $ref: '#/components/schemas/ProcessError'
               examples:
                 error-1:
                   summary: Sample error
                   value:
-                    - name: process1
-                      error_message: Process could not be saved because of ...
+                    name: process1
+                    error_message: Processes could not be saved because of ...
   /processes/{action}:
     patch:
       tags:
@@ -448,4 +462,11 @@ components:
         name:
           type: string
         error_message:
+          type: string
+    ProcessMessage:
+      type: object
+      properties:
+        name:
+          type: string
+        action:
           type: string
