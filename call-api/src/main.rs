@@ -21,7 +21,7 @@ struct Args {
 
 async fn call_api(process: &str) -> u128 {
     let start = Instant::now();
-    let url = format!("http://localhost:3000/?key={}", process);
+    let url = format!("https://dev-cc-api.i-360.com/process?process_name={}", process);
     match get_http_response(&url).await {
         Ok((status, body)) => {
             println!("Status: {}, Body: {}", status, body);

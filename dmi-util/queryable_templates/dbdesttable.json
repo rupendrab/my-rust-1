@@ -1,0 +1,278 @@
+[
+    {
+      "batch_size": 10000,
+      "delete_table_name": "__dmi_portal_delete",
+      "dest_id": "pg-queryable-n",
+      "eventtimestamp_column": "eventtimestamp_full",
+      "pk_columns": {
+        "pks": [
+          "state",
+          "uid"
+        ]
+      },
+      "table_name": "dmi_portal",
+      "table_schema": "dmi",
+      "table_type": "DMI_PORTAL"
+    },
+    {
+      "batch_size": 10000,
+      "delete_table_name": "__dmi_portal_delete",
+      "dest_id": "pg-queryable-n",
+      "eventtimestamp_column": "eventtimestamp_full",
+      "pk_columns": {
+        "pks": [
+          "state",
+          "uid"
+        ]
+      },
+      "table_name": "dmi_portal",
+      "table_schema": "dmi",
+      "table_type": "DMI_PORTAL_DELETE"
+    },
+    {
+      "batch_size": 10000,
+      "delete_table_name": "__dmi_export_delete",
+      "dest_id": "pg-queryable-n",
+      "eventtimestamp_column": "eventtimestamp_full",
+      "pk_columns": {
+        "pks": [
+          "state",
+          "uid"
+        ]
+      },
+      "table_name": "dmi_export",
+      "table_schema": "dmi",
+      "table_type": "DMI_EXPORT"
+    },
+    {
+      "batch_size": 10000,
+      "delete_table_name": "__dmi_export_delete",
+      "dest_id": "pg-queryable-n",
+      "eventtimestamp_column": "eventtimestamp_full",
+      "pk_columns": {
+        "pks": [
+          "state",
+          "uid"
+        ]
+      },
+      "table_name": "dmi_export",
+      "table_schema": "dmi",
+      "table_type": "DMI_EXPORT_DELETE"
+    },
+    {
+      "batch_size": 10000,
+      "delete_table_name": "__dmi_person_delete",
+      "dest_id": "pg-queryable-n",
+      "eventtimestamp_column": "eventtimestamp_full",
+      "pk_columns": {
+        "pks": [
+          "state",
+          "uid"
+        ]
+      },
+      "table_name": "dmi_person",
+      "table_schema": "dmi",
+      "table_type": "DMI_PERSON"
+    },
+    {
+      "batch_size": 10000,
+      "delete_table_name": "__dmi_person_delete",
+      "dest_id": "pg-queryable-n",
+      "eventtimestamp_column": "eventtimestamp_full",
+      "pk_columns": {
+        "pks": [
+          "state",
+          "uid"
+        ]
+      },
+      "table_name": "dmi_person",
+      "table_schema": "dmi",
+      "table_type": "DMI_PERSON_DELETE"
+    },
+    {
+      "batch_size": 10000,
+      "delete_table_name": "__dmi_consumer_delete",
+      "dest_id": "pg-queryable-n",
+      "eventtimestamp_column": "eventtimestamp_full",
+      "pk_columns": {
+        "pks": [
+          "state",
+          "uid"
+        ]
+      },
+      "table_name": "dmi_consumer",
+      "table_schema": "dmi",
+      "table_type": "DMI_CONSUMER"
+    },
+    {
+      "batch_size": 10000,
+      "delete_table_name": "__dmi_consumer_delete",
+      "dest_id": "pg-queryable-n",
+      "eventtimestamp_column": "eventtimestamp_full",
+      "pk_columns": {
+        "pks": [
+          "state",
+          "uid"
+        ]
+      },
+      "table_name": "dmi_consumer",
+      "table_schema": "dmi",
+      "table_type": "DMI_CONSUMER_DELETE"
+    },
+    {
+      "batch_size": 10000,
+      "delete_table_name": "__dmi_modelscore_delete",
+      "dest_id": "pg-queryable-n",
+      "eventtimestamp_column": "eventtimestamp_modelscore",
+      "pk_columns": {
+        "pks": [
+          "state",
+          "uid"
+        ]
+      },
+      "table_name": "dmi_modelscore",
+      "table_schema": "dmi",
+      "table_type": "DMI_MODELSCORE"
+    },
+    {
+      "batch_size": 10000,
+      "delete_table_name": "__dmi_modelscore_delete",
+      "dest_id": "pg-queryable-n",
+      "eventtimestamp_column": "eventtimestamp_modelscore",
+      "pk_columns": {
+        "pks": [
+          "state",
+          "uid"
+        ]
+      },
+      "table_name": "dmi_modelscore",
+      "table_schema": "dmi",
+      "table_type": "DMI_MODELSCORE_DELETE"
+    },
+    {
+      "batch_size": 30000,
+      "delete_table_name": "__dmi_abev_delete",
+      "dest_id": "pg-queryable-n",
+      "eventtimestamp_column": "eventtimestamp_abev",
+      "pk_columns": {
+        "pks": [
+          "state",
+          "uid",
+          "electionid"
+        ]
+      },
+      "table_name": "dmi_abev",
+      "table_schema": "dmi",
+      "table_type": "DMI_ABEV"
+    },
+    {
+      "batch_size": 30000,
+      "delete_table_name": "__dmi_abev_delete",
+      "dest_id": "pg-queryable-n",
+      "eventtimestamp_column": "eventtimestamp_abev",
+      "pk_columns": {
+        "pks": [
+          "state",
+          "uid",
+          "electionid"
+        ]
+      },
+      "table_name": "dmi_abev",
+      "table_schema": "dmi",
+      "table_type": "DMI_ABEV_DELETE"
+    },
+    {
+      "batch_size": 30000,
+      "delete_table_name": "__dmi_abev_analysis_delete",
+      "dest_id": "pg-queryable-n",
+      "eventtimestamp_column": "eventtimestamp_abev_analysis",
+      "pk_columns": {
+        "pks": [
+          "state",
+          "uid",
+          "electionid"
+        ]
+      },
+      "table_name": "dmi_abev_analysis",
+      "table_schema": "dmi",
+      "table_type": "DMI_ABEV_ARCHIVE"
+    },
+    {
+      "batch_size": 30000,
+      "delete_table_name": "__dmi_abev_analysis_delete",
+      "dest_id": "pg-queryable-n",
+      "eventtimestamp_column": "eventtimestamp_abev_analysis",
+      "pk_columns": {
+        "pks": [
+          "state",
+          "uid",
+          "electionid"
+        ]
+      },
+      "table_name": "dmi_abev_analysis",
+      "table_schema": "dmi",
+      "table_type": "DMI_ABEV_ARCHIVE_DELETE"
+    },
+    {
+      "batch_size": 30000,
+      "delete_table_name": "__tax_delete",
+      "dest_id": "pg-queryable-n",
+      "eventtimestamp_column": "eventtimestamp_tax",
+      "pk_columns": {
+        "pks": [
+          "state",
+          "uid",
+          "ea_eapk"
+        ]
+      },
+      "table_name": "tax",
+      "table_schema": "dmi",
+      "table_type": "DMI_TAX"
+    },
+    {
+      "batch_size": 30000,
+      "delete_table_name": "__tax_delete",
+      "dest_id": "pg-queryable-n",
+      "eventtimestamp_column": "eventtimestamp_tax",
+      "pk_columns": {
+        "pks": [
+          "state",
+          "uid",
+          "ea_eapk"
+        ]
+      },
+      "table_name": "tax",
+      "table_schema": "dmi",
+      "table_type": "DMI_TAX_DELETE"
+    },
+    {
+      "batch_size": 30000,
+      "delete_table_name": "__dmi_hh_delete",
+      "dest_id": "pg-queryable-n",
+      "eventtimestamp_column": "eventtimestamp_hh",
+      "pk_columns": {
+        "pks": [
+          "state",
+          "address_hash"
+        ]
+      },
+      "table_name": "dmi_hh",
+      "table_schema": "dmi",
+      "table_type": "DMI_HH"
+    },
+    {
+      "batch_size": 30000,
+      "delete_table_name": "__dmi_hh_delete",
+      "dest_id": "pg-queryable-n",
+      "eventtimestamp_column": "eventtimestamp_hh",
+      "pk_columns": {
+        "pks": [
+          "state",
+          "address_hash"
+        ]
+      },
+      "table_name": "dmi_hh",
+      "table_schema": "dmi",
+      "table_type": "DMI_HH_DELETE"
+    }
+  ]

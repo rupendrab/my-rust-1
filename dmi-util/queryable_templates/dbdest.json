@@ -1,0 +1,9 @@
+[
+    {
+      "dest_db": "queryable",
+      "dest_db_type": "postgresql",
+      "dest_id": "pg-queryable-n",
+      "dest_server": "pg-queryable-n-v2",
+      "dest_type": "pg-queryable"
+    }
+]
